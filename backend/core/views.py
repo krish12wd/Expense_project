@@ -1,0 +1,924 @@
+from rest_framework.decorators import api_view, parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.core.mail import send_mail
+from django.contrib.auth.hashers import make_password, check_password
+from rest_framework.response import Response
+from datetime import timedelta, date,datetime
+from django.db.models import Sum
+from .models import Employee,Expense,ExpenseRequest,Policy
+from .serializers import RegisterSerializer,ExpenseSerializer,EmployeeSerializer
+import random
+from django.conf import settings
+from django.db.models import Q
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import Expense, ExpenseRequest, Employee
+from rest_framework import status
+
+
+
+
+
+
+@api_view(['POST'])
+def register_user(request):
+    print("Request data:", request.data)  
+
+    serializer = RegisterSerializer(data=request.data)
+    if serializer.is_valid():
+        email = serializer.validated_data['email']
+        if Employee.objects.filter(email = email).exists():
+            return Response({"error": "Email already exists"}, status=400)
+
+        otp = str(random.randint(100000,999999))
+        emp = Employee.objects.create(
+            username = serializer.validated_data['username'],
+            email = email,
+            password = make_password(serializer.validated_data['password']),
+            phone_number = serializer.validated_data['phone_number'],
+            otp = otp,
+
+        )
+        try:
+            send_mail(
+                'Hello from Clovia ReimburseX',
+                f'Your OTP is {otp}. Please use this to verify your account.',
+                settings.DEFAULT_FROM_EMAIL,
+                [email],
+            )
+        except Exception as e:
+            return Response({"error": f"Failed to send email: {str(e)}"}, status=500)
+        
+        print("Validation errors:", serializer.errors)
+        return Response({"message":"OTP sent succesfully"} , status=201 )
+    return Response(serializer.errors, status=400)
+
+@api_view(['POST'])
+def verify_otp(request):
+    otp = request.data.get('otp')
+    email = request.data.get('email')
+
+    if not email or not otp :
+        return Response({'error':'Email and OTP both are required'},status=400)
+    try:
+        emp = Employee.objects.get(email= email)
+    except:
+        return Response({'error':'Employee Not Found'},status=404)
+
+    if emp.otp == otp:
+        emp.is_verified = True
+        emp.save()
+        return Response({"message": "OTP verified successfully, Login with your Credentials when department is alloted"}, status=200)
+    else:
+        return Response({"error": "Invalid OTP"}, status=400)
+    
+@api_view(['POST'])
+def login_emp(request):
+    email = request.data.get('email')
+    password = request.data.get('password')
+
+    try:
+        emp = Employee.objects.get(email=email)
+    except Employee.DoesNotExist:
+        return Response({'error': "User not Found"}, status=404)
+
+    if not emp.is_verified:
+        return Response({"error": "User not verified"}, status=403)
+
+    if not check_password(password, emp.password):
+        return Response({"error": "Incorrect Password"}, status=401)
+
+    if not emp.role:
+        return Response({'message': 'Role not assigned. Contact admin.'}, status=400)
+
+    refresh = RefreshToken.for_user(emp)
+    access_token = str(refresh.access_token)
+    refresh_token = str(refresh)
+
+    return Response({
+        'message': 'Login successful',
+        'access': access_token,
+        'refresh': refresh_token,
+        'username': emp.username,
+        'email': emp.email,
+        'role': emp.role,
+        'phone_number': emp.phone_number
+    }, status=200)
+        
+
+
+@api_view(['POST'])
+def manager_dashboard(request):
+    email = request.data.get('email')
+
+    try:
+        emp = Employee.objects.get(email=email)
+    except Employee.DoesNotExist:
+        return Response({'error': "User not found"}, status=404)
+
+    return Response({
+        'username': emp.username,
+        'email': emp.email,
+        'role': emp.role,
+        'department': emp.department.name_department if emp.department else None,
+        'phone_number': emp.phone_number,
+        'grade': emp.grade,
+        'id': emp.id,
+        'photo': emp.photo.url if emp.photo else None  
+    })
+
+
+@api_view(['POST'])
+def reset_password(request):
+    email = request.data.get('email')
+    password = request.data.get('password')
+
+    try:
+        emp = Employee.objects.get(email = email)
+        emp.password = make_password(password)
+        emp.save()
+
+        return Response({'message': 'Password reset successful'}, status=200)
+    except:
+
+        return Response({'error': 'User not found'}, status=404)        
+
+
+
+@api_view(['POST'])
+@parser_classes([MultiPartParser, FormParser])  
+def expense_request(request):
+    email = request.data.get('email')
+
+    try:
+        employee = Employee.objects.get(email=email)
+    except:
+        return Response({'error': "Employee not found"}, status=404)
+
+    
+    input_data = request.data.dict()
+    input_data.pop('email', None)  
+    files = request.FILES
+
+    serializer = ExpenseSerializer(data=request.data)
+    if serializer.is_valid():
+        expense = serializer.save(emp=employee)
+
+        if employee.role == 'Employee':
+            required_by = Employee.objects.get(role='Manager', department=employee.department)
+            level = 'L1'
+        else:
+            required_by = employee.department.HOD
+            level = 'HoD'
+
+        ExpenseRequest.objects.create(
+            expense=expense,
+            required_by=required_by,
+            level=level,
+            status="Pending",
+        )
+
+        return Response({
+            "message": "Expense and request created successfully",
+            "expense_id": expense.expense_id
+        }, status=201)
+
+    else:
+        print(serializer.errors)
+        return Response(serializer.errors, status=400)
+
+
+@api_view(['POST'])
+def expense_history(request):
+    email = request.data.get('email')
+    try:
+        emp = Employee.objects.get(email=email)
+    except Employee.DoesNotExist:
+        return Response({'error': "User not found"}, status=404)
+
+    expenses = Expense.objects.filter(emp=emp).exclude(status="Cancelled").order_by('-date')
+    history_data = []
+
+    for exp in expenses:
+        reqs = ExpenseRequest.objects.filter(expense=exp).order_by('time')
+
+        l1_status = None
+        hod_status = None
+        reason = ""
+
+        for r in reqs:
+            if r.level == "L1":
+                l1_status = r.status
+                if r.remarks:
+                    reason = r.remarks
+            elif r.level == "HoD":
+                hod_status = r.status
+                if r.remarks:
+                    reason = r.remarks
+
+        creator_role = exp.emp.role
+
+        if creator_role == "Manager":
+            if hod_status == "Pending":
+                combined_status = "Waiting for HoD"
+            elif hod_status == "Approved":
+                combined_status = "Approved by HoD, Waiting for Payment"
+            elif hod_status == "Paid":
+                combined_status = "Paid"
+            elif hod_status == "Rejected":
+                combined_status = "Rejected by HoD"
+            else:
+                combined_status = "Pending"
+
+        else:
+            if l1_status == "Pending":
+                combined_status = "Waiting for Manager (L1)"
+            elif l1_status == "Approved" and hod_status == "Pending":
+                combined_status = "Approved by Manager (L1), Waiting for HoD"
+            elif l1_status == "Approved" and hod_status == "Approved":
+                combined_status = "Approved by HoD, Waiting for Payment"
+            elif hod_status == "Paid":
+                combined_status = "Paid"
+            elif l1_status == "Rejected" or hod_status == "Rejected":
+                combined_status = "Rejected"
+            else:
+                combined_status = "Pending"
+
+        history_data.append({
+            "expense_date": exp.date,
+            "request_date": exp.created_at,
+            "created_at": exp.created_at,
+            "note": exp.note,
+            "amount": exp.amount,
+            "status": combined_status,
+            "reason": reason
+        })
+
+    return Response(history_data)
+
+
+@api_view(['POST'])
+def get_other_request(request):
+    email = request.data.get("email")
+    
+
+    try:
+        emp= Employee.objects.get(email = email)
+        department = emp.department
+        emp_req = ExpenseRequest.objects.filter(
+            expense__emp__department = department,
+            level = 'L1'
+        ).select_related('expense','required_by')
+
+        
+
+
+        result = []
+        for req in emp_req:
+            result.append({
+                'request_id': req.request_id,
+                'raised_by_id' : req.expense.emp.id,
+                'raised_by_name' : req.expense.emp.username,
+                'expense_date' : str(req.expense.date),
+                'request_date' : str(req.time),
+                'note': req.expense.note,
+                "amount" : req.expense.amount,
+                "status": req.status,
+                'proof':request.build_absolute_uri(req.expense.proof.url) ,
+                'remarks' : req.remarks or ''
+            })
+
+        return Response(result)
+    except:
+        return Response({'error': 'Manager not found'}, status=400)
+
+
+
+
+@api_view(['POST'])
+def update_request(request):
+    request_id = request.data.get('request_id')
+    action = request.data.get('action')  
+    remarks = request.data.get('remarks', '')
+    force = request.data.get('force', False)
+
+    try:
+        req = ExpenseRequest.objects.get(request_id=request_id)
+        exp = req.expense
+        emp = exp.emp
+
+        if action == 'approve':
+            from datetime import datetime, timedelta, date
+            today = date.today()
+            policies = Policy.objects.filter(grade=emp.grade, department_id=emp.department_id)
+
+            for policy in policies:
+                if policy.duration == 'Weekly':
+                    weekday = today.weekday()
+                    monday = today - timedelta(days=weekday)
+                    start_date = datetime.combine(monday, datetime.min.time())
+                    end_date = start_date + timedelta(days=6, hours=23, minutes=59, seconds=59)
+                else:
+                    first_day = today.replace(day=1)
+                    if today.month == 12:
+                        last_day = date(today.year + 1, 1, 1) - timedelta(days=1)
+                    else:
+                        last_day = date(today.year, today.month + 1, 1) - timedelta(days=1)
+                    start_date = datetime.combine(first_day, datetime.min.time())
+                    end_date = datetime.combine(last_day, datetime.max.time())
+
+                total_spent = Expense.objects.filter(
+                    emp=emp,
+                    date__range=(start_date, end_date),
+                    status__in=['Pending', 'Approved', 'Paid']
+                ).aggregate(total=Sum('amount'))['total'] or 0
+
+                new_total = total_spent
+
+                if exp.status in ['Pending', 'Approved', 'Paid']:
+                    new_total = total_spent  
+                else:
+                    new_total = total_spent + exp.amount 
+
+                if new_total > policy.limit_amount and not force:
+                    return Response({
+                        "violation": True,
+                        "policy_name": policy.policy_name,
+                        "policy_type": policy.policy_type,
+                        "limit": policy.limit_amount,
+                        "spent": total_spent - exp.amount,
+                        "expense_amount": exp.amount
+                    }, status=200)
+
+            req.status = 'Approved'
+            req.remarks = remarks
+            req.save()
+
+            try:
+                send_mail(
+                    'Hello from Clovia ReimburseX',
+                    f"""Hello,
+
+Expense request of {exp.amount}Rs created on {exp.date.strftime('%d-%m-%Y')} has been approved.
+
+Regards,
+Clovia ReimburseX Team
+""",
+                    settings.DEFAULT_FROM_EMAIL,
+                    [req.required_by.email, emp.email],  
+                )
+            except Exception as e:
+                return Response({"error": f"Failed to send email: {str(e)}"}, status=500)
+
+            if not ExpenseRequest.objects.filter(
+                expense=exp,
+                required_by=req.required_by.department.HOD,
+                level='HoD',
+                status='Pending'
+            ).exists():
+                ExpenseRequest.objects.create(
+                    expense=exp,
+                    required_by=req.required_by.department.HOD,
+                    level='HoD',
+                    status='Pending',
+                )
+
+        elif action == 'reject':
+            req.status = 'Rejected'
+            req.remarks = remarks
+            req.save()
+            exp.status = 'Rejected'
+            exp.save()
+            try:
+                send_mail(
+                    'Hello from Clovia ReimburseX',
+                    f"""Hello,
+
+Expense request of {exp.amount}Rs created on {exp.date.strftime('%d-%m-%Y')} has been Rejected.
+
+Regards,
+Clovia ReimburseX Team
+""",
+                    settings.DEFAULT_FROM_EMAIL,
+                    [req.required_by.email, emp.email],  
+                )
+            except Exception as e:
+                return Response({"error": f"Failed to send email: {str(e)}"}, status=500)
+
+
+        else:
+            return Response({'error': 'Invalid action'}, status=400)
+
+        return Response({'success': True})
+
+    except ExpenseRequest.DoesNotExist:
+        return Response({'error': 'Request not found'}, status=404)
+
+
+
+@api_view(['POST'])
+def hod_dashboard(request):
+    email = request.data.get('email')
+
+    try:
+        emp = Employee.objects.get(email=email)
+    except:
+        return Response({'error': "User not found"}, status=404)
+
+    username = emp.username
+    role = emp.role
+    department = emp.department.name_department
+    phone_number = emp.phone_number
+    grade = emp.grade
+    id = emp.id
+    photo_url = emp.photo.url if emp.photo else None  
+
+    return Response({
+        'username': username,
+        'email': email,
+        'role': role,
+        'department': department,
+        'phone_number': phone_number,
+        'grade': grade,
+        'id': id,
+        'photo': photo_url  
+    })
+
+@api_view(['POST'])
+def get_Hod_Other_request(request):
+    email = request.data.get("email")
+
+    try:
+        emp = Employee.objects.get(email=email)
+        department = emp.department
+
+        emp_req = ExpenseRequest.objects.filter(
+            expense__emp__department=department,
+            level='HoD'
+        ).select_related('expense', 'required_by')
+
+        result = []
+        for req in emp_req:
+            result.append({
+                'request_id': req.request_id,
+                'raised_by_id': req.expense.emp.id,
+                'raised_by_name': req.expense.emp.username,
+                'expense_date': str(req.expense.date),
+                'request_date': str(req.time),
+                'note': req.expense.note,
+                "amount": req.expense.amount,
+                "status": req.status,
+                'proof': request.build_absolute_uri(req.expense.proof.url) if req.expense.proof else None,
+                'remarks': req.remarks or ''
+            })
+
+        return Response(result)
+    except Exception as e:
+        return Response({'error': str(e)}, status=400)
+
+    
+
+@api_view(['POST'])
+def summary_request(request):
+    email = request.data.get('email')
+    emp = Employee.objects.get(email = email)
+    id_ = emp.id
+
+    expense_id = Expense.objects.filter(expense_id = id_)
+    
+
+
+@api_view(['POST'])
+def hod_update_request(request):
+    request_id = request.data.get('request_id')
+    action = request.data.get('action')
+    remarks = request.data.get('remarks', '')
+    force = request.data.get('force', False)
+
+    try:
+        req = ExpenseRequest.objects.get(request_id=request_id)
+        exp = req.expense
+        emp = exp.emp
+
+        if action == 'approve':
+            from datetime import datetime, timedelta, date
+            policies = Policy.objects.filter(grade=emp.grade, department_id=emp.department_id)
+            today = date.today()
+
+            for policy in policies:
+                if policy.duration == 'Weekly':
+                    weekday = today.weekday()
+                    monday = today - timedelta(days=weekday)
+                    start_date = datetime.combine(monday, datetime.min.time())
+                    end_date = start_date + timedelta(days=6, hours=23, minutes=59, seconds=59)
+                else:
+                    first_day = today.replace(day=1)
+                    if today.month == 12:
+                        last_day = date(today.year + 1, 1, 1) - timedelta(days=1)
+                    else:
+                        last_day = date(today.year, today.month + 1, 1) - timedelta(days=1)
+                    start_date = datetime.combine(first_day, datetime.min.time())
+                    end_date = datetime.combine(last_day, datetime.max.time())
+
+                total_spent = Expense.objects.filter(
+                    emp=emp,
+                    date__range=(start_date, end_date),
+                    status__in=['Pending', 'Approved', 'Paid']
+                ).aggregate(total=Sum('amount'))['total'] or 0
+
+                new_total = total_spent
+                if exp.status != 'Approved':
+                    new_total += exp.amount
+
+                if new_total > policy.limit_amount and not force:
+                    return Response({
+                        "violation": True,
+                        "policy_name": policy.policy_name,
+                        "policy_type": policy.policy_type,
+                        "limit": policy.limit_amount,
+                        "spent": total_spent - exp.amount,
+                        "expense_amount": exp.amount
+                    }, status=200)
+
+            req.status = 'Approved'
+            req.remarks = remarks
+            req.save()
+            exp.status = 'Approved'
+            exp.save()
+
+            manager_request = ExpenseRequest.objects.filter(
+                expense=exp,
+                level='Manager',
+                status='Approved'
+            ).first()
+            manager_email = manager_request.required_by.email if manager_request else None
+
+            recipients = [req.required_by.email, emp.email]
+            if manager_email:
+                recipients.append(manager_email)
+
+            try:
+                send_mail(
+                    'Expense Request Approved - Clovia ReimburseX',
+                    f"""Hello,
+
+The expense request of {exp.amount}Rs created on {exp.date.strftime('%d-%m-%Y')} 
+has been approved by the HOD.
+
+Regards,
+Clovia ReimburseX Team
+""",
+                    settings.DEFAULT_FROM_EMAIL,
+                    recipients
+                )
+            except Exception as e:
+                return Response({"error": f"Failed to send email: {str(e)}"}, status=500)
+
+        elif action == 'reject':
+            req.status = 'Rejected'
+            req.remarks = remarks
+            req.save()
+            exp.status = 'Rejected'
+            exp.save()
+
+        else:
+            return Response({'error': 'Invalid action'}, status=400)
+
+        return Response({'success': True})
+
+    except ExpenseRequest.DoesNotExist:
+        return Response({'error': 'Request not found'}, status=404)
+
+
+
+@api_view(['POST'])
+def comp_other_request(request):
+    email = request.data.get("email")
+
+    try:
+        emp= Employee.objects.get(email = email)
+        department = emp.department
+        emp_req = ExpenseRequest.objects.filter(
+            expense__emp__department = department,
+            level = 'HoD',
+            status__in = ['Approved', 'Paid'] 
+        ).select_related('expense','required_by')
+
+        result = []
+        for req in emp_req:
+            result.append({
+                'request_id': req.request_id,
+                'raised_by_id' : req.expense.emp.id,
+                'raised_by_name' : req.expense.emp.username,
+                'expense_date' : str(req.expense.date),
+                'request_date' : str(req.time),
+                'note': req.expense.note,
+                "amount" : req.expense.amount,
+                "status": req.status,
+                'remarks' : req.remarks or ''
+            })
+
+        return Response(result)
+    except:
+        return Response({'error': 'Manager not found'}, status=400)
+    
+
+@api_view(['POST'])
+def Comp_update_request(request):
+    request_id = request.data.get('request_id')
+    action = request.data.get('action')  
+    remarks = request.data.get('remarks', '')
+    
+    try:
+        req = ExpenseRequest.objects.get(request_id=request_id)
+        exp = req.expense
+
+        if action == 'paid':
+            req.status = 'Paid'
+            req.remarks = remarks
+            req.save()
+
+            emp = exp.emp
+
+            manager_request = ExpenseRequest.objects.filter(
+                expense=exp,
+                level='L1',
+                status='Approved'
+            ).first()
+            manager_email = manager_request.required_by.email if manager_request else None
+
+            hod_request = ExpenseRequest.objects.filter(
+                expense=exp,
+                level='HOD',
+                status='Approved'
+            ).first()
+            hod_email = hod_request.required_by.email if hod_request else None
+
+            compensator_email = req.required_by.email
+
+            recipients = [emp.email]  
+            if manager_email:
+                recipients.append(manager_email)
+            if hod_email:
+                recipients.append(hod_email)
+            if compensator_email and compensator_email not in recipients:
+                recipients.append(compensator_email)
+
+            try:
+                send_mail(
+                    'Expense Request Paid - Clovia ReimburseX',
+                    f"""Hello,
+
+        The expense request of {exp.amount}Rs created on {exp.date.strftime('%d-%m-%Y')} 
+        has been marked as Paid.
+
+        Regards,
+        Clovia ReimburseX Team
+        """,
+                    settings.DEFAULT_FROM_EMAIL,
+                    recipients
+                )
+            except Exception as e:
+                return Response({"error": f"Failed to send email: {str(e)}"}, status=500)
+
+            exp.status = 'Paid'
+            exp.save()
+
+            
+
+            exp.status = 'Paid'
+            exp.save()
+
+        else:
+            return Response({'error': 'Invalid action'}, status=400)
+
+        return Response({'success': True})
+
+    except ExpenseRequest.DoesNotExist:
+        return Response({'error': 'Request not found'}, status=404)
+    
+
+@api_view(['POST'])
+def check_policy(request):
+    email = request.data.get('email')
+    amount = int(request.data.get('amount'))
+    try:
+        emp = Employee.objects.get(email = email)
+    except:
+        return Response({"status": "error", "message": "Employee not found"}, status=404)
+
+    
+    policies = Policy.objects.filter( department_id = emp.department_id)
+    today = date.today()
+    
+    hard_policies = policies.filter(policy_type = 'Hard').order_by('priority').first()
+    soft_policies = policies.filter(policy_type = 'Soft').order_by('priority').first()
+
+    def get_total_spent(policy):
+        if policy.duration == 'Weekly':
+            weekday = today.weekday()
+            monday = today - timedelta(days=weekday)
+            start_date = datetime.combine(monday, datetime.min.time())
+            end_date = start_date + timedelta(days=6 , hours=23 , minutes= 59 , seconds=59)
+
+
+        elif policy.duration == 'Monthly':
+
+            first_day = today.replace(day= 1)
+
+            if today.month == 12:
+                last_day = date(today.year + 1, 1, 1) - timedelta(days=1)
+            else:
+                last_day = date(today.year, today.month + 1 , 1) - timedelta(days=1)
+
+            start_date = datetime.combine(first_day , datetime.min.time())
+            end_date = datetime.combine(last_day, datetime.max.time())
+
+        return Expense.objects.filter(
+            emp = emp,
+            date__range = (start_date, end_date),
+             status__in=['Approved', 'Paid', 'Pending']
+
+        ).aggregate(total = Sum('amount'))['total'] or 0
+
+
+
+
+    if hard_policies:
+        total_spent = get_total_spent(hard_policies)
+        if total_spent + amount > hard_policies.limit_amount:
+            return Response({
+                "status": "hard_violation",
+                "message": f"Hard policy violated: {hard_policies.policy_name}",
+                "limit": hard_policies.limit_amount,
+                "spent": total_spent,
+            })
+        
+    if soft_policies:
+        total_spent = get_total_spent(soft_policies)
+        if total_spent + amount > soft_policies.limit_amount:
+            return Response({
+                "status": "soft_violation",
+                "message": f"Soft policy violated: {soft_policies.policy_name}",
+                "limit": soft_policies.limit_amount,
+                "spent": total_spent,
+            })
+
+    return Response({"status": "allowed"})
+
+
+@api_view(['POST'])
+@parser_classes([MultiPartParser, FormParser])
+def hod_policy_approval(request):
+    email = request.data.get('email')
+    try:
+        emp = Employee.objects.get(email=email)
+    except:
+        return Response({"status": "error", "message": "Employee not found"}, status=404)
+
+    data = request.data.copy()
+    data.pop('email', None)
+
+    serializer = ExpenseSerializer(data=data)
+    if serializer.is_valid():
+        expense = serializer.save(emp=emp)
+
+        ExpenseRequest.objects.create(
+            expense=expense,
+            required_by=emp,
+            level="HoD",
+            status="Pending",
+            remarks="Awaiting HOD approval"
+        )
+
+        return Response({
+            "status": "success",
+            "message": "Request sent to HOD for approval."
+        })
+    else:
+        return Response(serializer.errors, status=400)
+    
+
+@api_view(['POST'])
+def hod_soft_policy_requests(request):
+    email = request.data.get('email')
+
+    try:
+        emp = Employee.objects.get(email=email)
+        department = emp.department
+
+        soft_requests = ExpenseRequest.objects.filter(
+            expense__emp__department=department,
+            level='HoD',
+            status='Pending',
+            remarks='Awaiting HOD Approval'
+        ).select_related('expense', 'required_by')
+
+        result = []
+        for req in soft_requests:
+            result.append({
+                'request_id': req.request_id,
+                'raised_by_id': req.expense.emp.id,
+                'raised_by_name': req.expense.emp.username,
+                'expense_date': str(req.expense.date),
+                'request_date': str(req.time),
+                'note': req.expense.note,
+                'reason': req.expense.reason_for_hod,
+                'amount': req.expense.amount,
+                'status': req.status,
+                'remarks': req.remarks or '',
+                'proof': request.build_absolute_uri(req.expense.proof.url) if req.expense.proof else None,
+            })
+
+        return Response(result)
+
+    except Employee.DoesNotExist:
+        return Response({'error': 'Manager not found'}, status=400)
+
+
+@api_view(['POST'])
+def exp_paid_history(request):
+    email = request.data.get('email')
+    start_date = request.data.get('start_date')
+    end_date = request.data.get('end_date')
+
+
+    try:
+        emp = Employee.objects.get(email=email)
+        expenses = Expense.objects.filter(emp=emp, status='Paid')
+
+        if start_date and end_date:
+
+            start = datetime.strptime(start_date, '%Y-%m-%d').date()
+
+            end = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+            expenses = expenses.filter(date__range=(start, end))
+        elif start_date:
+            start = datetime.strptime(start_date, '%Y-%m-%d').date()
+            expenses = expenses.filter(date__gte=start)
+        elif end_date:
+            end = datetime.strptime(end_date, '%Y-%m-%d').date()
+            expenses = expenses.filter(date__lte=end)
+
+        serializer = ExpenseSerializer(expenses, many=True)
+        return Response(serializer.data)
+
+    except Employee.DoesNotExist:
+        return Response({'error': 'Employee not found'}, status=404)
+    
+
+@api_view(['GET'])
+def get_all_employee(request):
+    emp = Employee.objects.all()
+    serializer = EmployeeSerializer(emp , many = True)
+    print(serializer.data)
+    return Response(serializer.data)
+
+    
+
+@api_view(['POST'])
+@parser_classes([MultiPartParser, FormParser])
+def upload_profile_photo(request):
+    
+    print("------------------------")
+
+    email = request.data.get('email')
+    photo = request.FILES.get('photo')
+
+    if not email or not photo:
+        return Response({'error': 'Email and Photo are both required'}, status=400)
+
+    try:
+        emp = Employee.objects.get(email=email)
+    except Employee.DoesNotExist:
+        return Response({'error': 'Employee not found'}, status=404)
+
+    emp.photo = photo
+    emp.save()
+
+    return Response({'message': 'Profile photo uploaded successfully'}, status=200)
+
+
+
+@api_view(['POST'])
+def undo_expense_request(request):
+    print("Incoming request data:", request.data)
+    expense_id = request.data.get("expense_id")
+
+
+    try:
+        expense = Expense.objects.get(expense_id=expense_id)
+    except Expense.DoesNotExist:
+        return Response({"error": "Expense not found or already removed"}, status=status.HTTP_404_NOT_FOUND)
+
+    if expense.status != "Pending":
+        return Response({"error": "Cannot undo. Expense already processed."}, status=status.HTTP_400_BAD_REQUEST)
+
+    expense.status = "Cancelled"
+    expense.save()
+    ExpenseRequest.objects.filter(expense=expense).update(status="Cancelled")
+    
+
+    return Response({"message": "Expense request successfully cancelled"}, status=status.HTTP_200_OK)

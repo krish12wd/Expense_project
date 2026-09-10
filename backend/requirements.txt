@@ -1,0 +1,7 @@
+Django>=5.2
+mysqlclient>=2.2.0
+djangorestframework
+django-cors-headers
+djangorestframework-simplejwt
+django-anymail
+Pillow>=10.0
