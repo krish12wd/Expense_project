@@ -1,14 +1,22 @@
-import axios from 'axios';
-import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import axios from "axios";
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css"
+import {
+  ArrowRight,
+  LockKeyhole,
+  Mail,
+  Phone,
+  Receipt,
+  UserRound,
+} from "lucide-react";
+import "react-toastify/dist/ReactToastify.css";
 
 const Register = () => {
-  const [email, setEmail] = useState('');
-  const [username, setUsername] = useState('');
-  const [phone_number, setPhoneNumber] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
+  const [phone_number, setPhoneNumber] = useState("");
+  const [password, setPassword] = useState("");
 
   const navigate = useNavigate();
 
@@ -16,7 +24,7 @@ const Register = () => {
     e.preventDefault();
 
     if (!email || !username || !phone_number || !password) {
-      toast.info('Please fill in all fields');
+      toast.info("Please fill in all fields");
       return;
     }
 
@@ -24,103 +32,221 @@ const Register = () => {
       email,
       password,
       username,
-      phone_number
+      phone_number,
     };
 
-    console.log('Sending data:', data);
+    console.log("Sending data:", data);
 
     try {
-      const response = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/auth/send-otp/`, data);
+      const response = await axios.post(
+        `${import.meta.env.VITE_BACKEND_URL}/auth/send-otp/`,
+        data
+      );
 
       if (response.status >= 200 && response.status < 300) {
-        toast.success('OTP sent successfully!');
-        localStorage.setItem('email',email)
-        
-        navigate('/verify-otp');
-      } else {
-        toast.error('Unexpected response status: ' + response.status);
-      }
+        toast.success("OTP sent successfully!");
+        localStorage.setItem("email", email);
 
+        navigate("/verify-otp");
+      } else {
+        toast.error("Unexpected response status: " + response.status);
+      }
     } catch (error) {
       const backendError = error.response?.data || error.message;
-      toast.error('Something went wrong: ' + JSON.stringify(backendError));
-      console.error('Error sending OTP:', backendError);
+      toast.error("Something went wrong: " + JSON.stringify(backendError));
+      console.error("Error sending OTP:", backendError);
     }
-  }
+  };
 
   return (
-    <div className='min-h-screen flex items-center justify-center bg-black'>
-      <div className="w-full border rounded-2xl sm:max-w-md md:max-w-lg lg:max-w-md xl:max-w-md p-6 sm:p-8 bg-[#1a1a1a] shadow-xl">
-        <h2 className='text-3xl font-bold text-center text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-pink-500 to-purple-500'>Create your Account</h2>
-        <p className='text-gray-400 text-center mt-2 text-sm'>Register to continue</p>
+    <div className="min-h-screen bg-[#07070b] text-white relative overflow-hidden">
+      {/* Background */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-96 h-96 bg-fuchsia-600/10 rounded-full blur-3xl" />
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl" />
+      </div>
 
-        <form className='space-y-4' onSubmit={handleSubmit}>
-          <div>
-            <label htmlFor='username' className='text-gray-300 block mb-1 text-sm cursor-pointer'>Username</label>
-            <input
-              onChange={(e) => setUsername(e.target.value)}
-              id='username'
-              type="text"
-              placeholder='Enter your name'
-              className='w-full p-3 bg-gray-800 rounded-md border border-gray-700 text-white text-sm'
-              required
-              value={username}
-            />
-          </div>
-          <div>
-            <label htmlFor='email' className='text-gray-300 block mb-1 text-sm cursor-pointer'>Email</label>
-            <input
-              onChange={(e) => setEmail(e.target.value)}
-              id='email'
-              type="email"
-              placeholder='Enter your email'
-              className='w-full p-3 bg-gray-800 rounded-md border border-gray-700 text-white text-sm'
-              required
-              value={email}
-            />
-          </div>
-          <div>
-            <label htmlFor='phonenumber' className='text-gray-300 block mb-1 text-sm cursor-pointer'>Phone Number</label>
-            <input
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              id='phonenumber'
-              type="text"
-              placeholder='10-digit phone number'
-              className='w-full p-3 bg-gray-800 rounded-md border border-gray-700 text-white text-sm'
-              required
-              value={phone_number}
-              maxLength={10}
-            />
-          </div>
-          <div>
-            <label htmlFor='password' className='text-gray-300 block mb-1 text-sm cursor-pointer'>Password</label>
-            <input
-              onChange={(e) => setPassword(e.target.value)}
-              id='password'
-              type="password"
-              placeholder='Enter your password'
-              className='w-full p-3 bg-gray-800 rounded-md border border-gray-700 text-white text-sm'
-              required
-              value={password}
-            />
-          </div>
+      <div className="relative min-h-screen max-w-7xl mx-auto px-6 lg:px-12 flex flex-col">
+        {/* Header */}
+        <header className="h-20 flex items-center justify-between border-b border-white/5">
+          <a href="/" className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
+              <Receipt size={21} />
+            </div>
 
-          <div className="flex justify-end space-x-1">
-            <span className='text-gray-400 text-sm'>Already have an account?</span>
-            <a href="/login" className='text-sm text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-pink-500 to-purple-500'>Login</a>
-          </div>
+            <div>
+              <h1 className="font-semibold text-lg">
+                Clovia ReimburseX
+              </h1>
+              <p className="text-[11px] text-neutral-500">
+                Expense Management
+              </p>
+            </div>
+          </a>
 
-          <button
-            type="submit"
-            className='w-full py-3 bg-gradient-to-r from-purple-600 to-pink-500 rounded-md text-white font-semibold hover:opacity-90 transition text-sm sm:text-base cursor-pointer'
+          <a
+            href="/login"
+            className="text-sm text-neutral-400 hover:text-white transition"
           >
-            Register & Send OTP
-          </button>
-        </form>
+            Sign in
+          </a>
+        </header>
 
+        {/* Content */}
+        <main className="flex-1 flex items-center justify-center py-10">
+          <div className="w-full max-w-md">
+            <div className="border border-white/10 bg-[#111116]/90 backdrop-blur-xl rounded-2xl p-7 sm:p-9 shadow-2xl">
+              <div className="mb-7">
+                <div className="w-12 h-12 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center mb-5">
+                  <UserRound className="text-violet-400" size={22} />
+                </div>
+
+                <h2 className="text-3xl font-bold tracking-tight">
+                  Create your account
+                </h2>
+
+                <p className="text-sm text-neutral-500 mt-2">
+                  Get started with Clovia ReimburseX.
+                </p>
+              </div>
+
+              <form className="space-y-4" onSubmit={handleSubmit}>
+                {/* Username */}
+                <div>
+                  <label
+                    htmlFor="username"
+                    className="text-sm text-neutral-300 block mb-2"
+                  >
+                    Full name
+                  </label>
+
+                  <div className="relative">
+                    <UserRound
+                      size={17}
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500"
+                    />
+
+                    <input
+                      onChange={(e) => setUsername(e.target.value)}
+                      id="username"
+                      type="text"
+                      placeholder="Enter your name"
+                      className="w-full h-11 pl-11 pr-4 bg-[#191920] border border-white/10 rounded-xl text-white text-sm outline-none placeholder:text-neutral-600 focus:border-violet-500/60 focus:ring-2 focus:ring-violet-500/10 transition"
+                      required
+                      value={username}
+                    />
+                  </div>
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label
+                    htmlFor="email"
+                    className="text-sm text-neutral-300 block mb-2"
+                  >
+                    Email address
+                  </label>
+
+                  <div className="relative">
+                    <Mail
+                      size={17}
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500"
+                    />
+
+                    <input
+                      onChange={(e) => setEmail(e.target.value)}
+                      id="email"
+                      type="email"
+                      placeholder="you@example.com"
+                      className="w-full h-11 pl-11 pr-4 bg-[#191920] border border-white/10 rounded-xl text-white text-sm outline-none placeholder:text-neutral-600 focus:border-violet-500/60 focus:ring-2 focus:ring-violet-500/10 transition"
+                      required
+                      value={email}
+                    />
+                  </div>
+                </div>
+
+                {/* Phone */}
+                <div>
+                  <label
+                    htmlFor="phonenumber"
+                    className="text-sm text-neutral-300 block mb-2"
+                  >
+                    Phone number
+                  </label>
+
+                  <div className="relative">
+                    <Phone
+                      size={17}
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500"
+                    />
+
+                    <input
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      id="phonenumber"
+                      type="text"
+                      placeholder="10-digit phone number"
+                      className="w-full h-11 pl-11 pr-4 bg-[#191920] border border-white/10 rounded-xl text-white text-sm outline-none placeholder:text-neutral-600 focus:border-violet-500/60 focus:ring-2 focus:ring-violet-500/10 transition"
+                      required
+                      value={phone_number}
+                      maxLength={10}
+                    />
+                  </div>
+                </div>
+
+                {/* Password */}
+                <div>
+                  <label
+                    htmlFor="password"
+                    className="text-sm text-neutral-300 block mb-2"
+                  >
+                    Password
+                  </label>
+
+                  <div className="relative">
+                    <LockKeyhole
+                      size={17}
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500"
+                    />
+
+                    <input
+                      onChange={(e) => setPassword(e.target.value)}
+                      id="password"
+                      type="password"
+                      placeholder="Create a password"
+                      className="w-full h-11 pl-11 pr-4 bg-[#191920] border border-white/10 rounded-xl text-white text-sm outline-none placeholder:text-neutral-600 focus:border-violet-500/60 focus:ring-2 focus:ring-violet-500/10 transition"
+                      required
+                      value={password}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full h-12 mt-3 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white font-semibold text-sm flex items-center justify-center gap-2 hover:from-violet-500 hover:to-fuchsia-500 transition shadow-lg shadow-violet-600/20 cursor-pointer"
+                >
+                  Continue
+                  <ArrowRight size={17} />
+                </button>
+              </form>
+
+              <div className="mt-7 pt-6 border-t border-white/10 text-center">
+                <span className="text-sm text-neutral-500">
+                  Already have an account?{" "}
+                </span>
+
+                <a
+                  href="/login"
+                  className="text-sm font-medium text-violet-400 hover:text-fuchsia-400 transition"
+                >
+                  Sign in
+                </a>
+              </div>
+            </div>
+          </div>
+        </main>
       </div>
     </div>
   );
-}
+};
 
 export default Register;

@@ -6,42 +6,41 @@ import EmpProfile from '../components/employee/Profile/EmpProfile'
 
 const EmpDashboard = () => {
 
-    const [section , setsection] = useState('My Expenses')
+    const [section, setsection] = useState('My Expenses')
 
-    const renderSection = () =>{
+    const renderSection = () => {
         switch (section) {
+
             case 'My Expenses':
-                return (
-                    <Expense/>
-                )
-                break;
+                return <Expense />
 
             case 'Create Request':
-                return(
-                    <CreateExpenseRequest setsection = {setsection}/>
-                )
-                break;
-
+                return <CreateExpenseRequest setsection={setsection} />
 
             case 'Profile':
-                return (
-                    <EmpProfile/>
-                )
-                break;
-        
-        }
+                return <EmpProfile />
 
+            default:
+                return <Expense />
+        }
     }
-  return (
-    <div className='flex'>
-        <div className="flex min-h-screen ">
-            <Sidebar currentSection = {section} onChangeSection = {setsection} />
+
+    return (
+        <div className="flex min-h-screen w-full bg-[#08080b] text-white">
+
+            <div className="shrink-0">
+                <Sidebar
+                    currentSection={section}
+                    onChangeSection={setsection}
+                />
+            </div>
+
+            <main className="flex-1 min-w-0 min-h-screen bg-[#08080b]">
+                {renderSection()}
+            </main>
+
         </div>
-        <div className="flex-1 p-6 bg-gray-100">
-            {renderSection()}
-        </div>
-    </div>
-  )
+    )
 }
 
 export default EmpDashboard

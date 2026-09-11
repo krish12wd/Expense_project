@@ -1,42 +1,43 @@
 import React, { useState } from 'react'
 import CompensatorProfile from '../components/compensator/Profile/CompensatorProfile'
 import OtherRequest from '../components/compensator/OtherRequest/OtherRequest'
-import Sidebar from '../components/compensator/Sidebar';
-
+import Sidebar from '../components/compensator/Sidebar'
 
 const CompensatorDashboard = () => {
 
-    const [section , setsection] = useState('Approval Request')
+    const [section, setsection] = useState('Approval Request')
 
-    const renderSection = () =>{
+    const renderSection = () => {
         switch (section) {
             case 'Approval Request':
-                return(
-                    <OtherRequest/>
-                )
-                break;
+                return <OtherRequest />
 
             case 'Profile':
-                return (
-                    <CompensatorProfile/>
-                )
-                break;
-        
-        }
+                return <CompensatorProfile />
 
+            default:
+                return <OtherRequest />
+        }
     }
 
+    return (
+        <div className="flex min-h-screen w-full bg-[#08080b] text-white">
 
-  return (
-    <div className='flex'>
-        <div className="flex min-h-screen ">
-            <Sidebar currentSection = {section} onChangeSection = {setsection} />
+            <div className="shrink-0">
+                <Sidebar
+                    currentSection={section}
+                    onChangeSection={setsection}
+                />
+            </div>
+
+            <main className="flex-1 min-w-0 min-h-screen bg-[#08080b]">
+                <div className="min-h-screen p-6 md:p-8 lg:p-10">
+                    {renderSection()}
+                </div>
+            </main>
+
         </div>
-        <div className="flex-1 p-6 bg-gray-100">
-            {renderSection()}
-        </div>
-    </div>
-  )
+    )
 }
 
 export default CompensatorDashboard
